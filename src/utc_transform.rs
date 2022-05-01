@@ -3,22 +3,25 @@
 
 use core::marker::PhantomData;
 
-use crate::cx_prf::{CommittingPrf, CxPrf};
+use crate::{cx_prf::CxPrf, hkdf_com_prf::HkdfComPrf, util::CommittingPrf};
 
 use aead::{AeadCore, AeadInPlace, Error, NewAead, Nonce, Tag};
 use aes::{Aes128, Aes256};
 use aes_gcm::{Aes128Gcm, Aes256Gcm, ClobberingDecrypt};
 use cipher::{
     generic_array::{arr::AddLength, GenericArray},
-    typenum::{Unsigned, U12},
+    typenum::{Unsigned, U12, U16, U32},
 };
+use sha2::{Sha256, Sha512};
 use subtle::ConstantTimeEq;
 
 /// A key-committing AEAD built on top of AES-128-GCM
-pub type UtcAes128Gcm = Utc<Aes128Gcm, CxPrf<Aes128, U12>>;
+pub type UtcAes128Gcm = Utc<Aes128Gcm, HkdfComPrf<Sha256, U16, U12>>;
+//pub type UtcAes128Gcm = Utc<Aes128Gcm, CxPrf<Aes128, U12>>;
 
 /// A key-committing AEAD built on top of AES-256-GCM
-pub type UtcAes256Gcm = Utc<Aes256Gcm, CxPrf<Aes256, U12>>;
+pub type UtcAes256Gcm = Utc<Aes256Gcm, HkdfComPrf<Sha512, U32, U12>>;
+//pub type UtcAes256Gcm = Utc<Aes256Gcm, CxPrf<Aes256, U12>>;
 
 /// The UtC transformation over a generic AEAD and committing PRF. This converts a unique-nonce-secure
 /// (i.e., not necessarily nonce-misuse-resistant) AEAD into a key-committing unique-nonce-secure
