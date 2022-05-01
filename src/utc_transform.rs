@@ -185,72 +185,8 @@ where
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::util::test_aead_correctness;
 
-    use aead::{Aead, NewAead, Payload};
-    use rand::{thread_rng, RngCore};
-
-    // Tests that Dec(Enc(x)) == x for a lot of x
-    #[test]
-    fn utc_correctness() {
-        let mut rng = thread_rng();
-
-        // We test the 128 and 256 bit ciphers
-        let ciph128 = {
-            let key = UtcAes128Gcm::generate_key(&mut rng);
-            UtcAes128Gcm::new(&key)
-        };
-        let ciph256 = {
-            let key = UtcAes256Gcm::generate_key(&mut rng);
-            UtcAes256Gcm::new(&key)
-        };
-
-        for msg_len in 0..=512 {
-            // Pick random values
-            let msg = {
-                let mut buf = vec![0u8; msg_len];
-                rng.fill_bytes(&mut buf);
-                buf
-            };
-            let aad = {
-                let mut buf = vec![0u8; msg_len];
-                rng.fill_bytes(&mut buf);
-                buf
-            };
-            let nonce = {
-                let mut buf = Nonce::<UtcAes128Gcm>::default();
-                rng.fill_bytes(buf.as_mut_slice());
-                buf
-            };
-
-            // Organize the msg and AAD
-            let pt_payload = Payload {
-                msg: &msg,
-                aad: &aad,
-            };
-            let pt_payload_copy = Payload {
-                msg: &msg,
-                aad: &aad,
-            };
-
-            // Encrypt the message under both ciphers
-            let ciphertext128 = ciph128.encrypt(&nonce, pt_payload).unwrap();
-            let ciphertext256 = ciph256.encrypt(&nonce, pt_payload_copy).unwrap();
-
-            // Decrypt the ciphertexts
-            let ct_payload128 = Payload {
-                msg: &ciphertext128,
-                aad: &aad,
-            };
-            let ct_payload256 = Payload {
-                msg: &ciphertext256,
-                aad: &aad,
-            };
-            let roundtrip_msg128 = ciph128.decrypt(&nonce, ct_payload128).unwrap();
-            let roundtrip_msg256 = ciph256.decrypt(&nonce, ct_payload256).unwrap();
-
-            // Compare the decrypted messages with the original
-            assert_eq!(msg, roundtrip_msg128);
-            assert_eq!(msg, roundtrip_msg256);
-        }
-    }
+    test_aead_correctness!(UtcAes128Gcm, utc_aes128_correctness);
+    test_aead_correctness!(UtcAes256Gcm, utc_aes256_correctness);
 }

@@ -124,3 +124,12 @@ where
         ciph.decrypt_in_place_detached(nonce, &[], buffer, tag)
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::util::test_aead_correctness;
+
+    test_aead_correctness!(HteUtcAes128Gcm, hte_utc_aes128_correctness);
+    test_aead_correctness!(HteUtcAes256Gcm, hte_utc_aes256_correctness);
+}
