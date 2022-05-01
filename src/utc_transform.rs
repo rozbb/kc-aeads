@@ -1,3 +1,6 @@
+//! Defines the `UtC` unique-nonce-secure AEAD transform described in
+//! <https://eprint.iacr.org/2022/268> §7
+
 use core::marker::PhantomData;
 
 use crate::cx_prf::{CommittingPrf, CxPrf};
@@ -11,10 +14,16 @@ use cipher::{
 };
 use subtle::ConstantTimeEq;
 
+/// A key-committing AEAD built on top of AES-128-GCM
 pub type UtcAes128Gcm = Utc<Aes128Gcm, CxPrf<Aes128, U12>>;
+
+/// A key-committing AEAD built on top of AES-256-GCM
 pub type UtcAes256Gcm = Utc<Aes256Gcm, CxPrf<Aes256, U12>>;
 
-/// The UtC transformation over a generic AEAD
+/// The UtC transformation over a generic AEAD and committing PRF. This converts a unique-nonce-secure
+/// (i.e., not necessarily nonce-misuse-resistant) AEAD into a key-committing unique-nonce-secure
+/// AEAD. Its construction is described in Figure 15 of [Bellare and
+/// Hoang](https://eprint.iacr.org/2022/268).
 pub struct Utc<A, F>
 where
     A: AeadInPlace + NewAead,

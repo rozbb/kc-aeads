@@ -1,4 +1,4 @@
-//! Defines the `CX[E]` committing PRF scheme described in https://eprint.iacr.org/2022/268 §7
+//! Defines the `CX[E]` committing PRF scheme described in <https://eprint.iacr.org/2022/268> §7
 
 use core::marker::PhantomData;
 
