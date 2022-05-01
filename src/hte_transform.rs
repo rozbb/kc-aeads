@@ -1,5 +1,6 @@
 //! Defines the `HtE` key-committing → context-committing (CMTD-1 → CMTD-4) AEAD transform
-//! described in <https://eprint.iacr.org/2022/268> §3
+//! described in <https://eprint.iacr.org/2022/268> §3. This version of `HtE` takes a hash function
+//! and builds a MAC from the HKDF of that hash.
 
 use crate::utc_transform::{UtcAes128Gcm, UtcAes256Gcm};
 
@@ -12,12 +13,10 @@ use hkdf::SimpleHkdf;
 use sha2::{Sha256, Sha512};
 
 /// A context-committing AEAD built on top of AES-128-GCM
-pub type HteUtcAes128Gcm = HkdfHte<UtcAes128Gcm, Sha256>;
-//pub type HteUtcAes128Gcm = HkdfHte<UtcAes128Gcm, Blake2bMac<U32>>;
+pub type HkdfHteUtcAes128Gcm = HkdfHte<UtcAes128Gcm, Sha256>;
 
 /// A context-committing AEAD built on top of AES-256-GCM
-pub type HteUtcAes256Gcm = HkdfHte<UtcAes256Gcm, Sha512>;
-//pub type HteUtcAes256Gcm = HkdfHte<UtcAes256Gcm, Blake2bMac<U64>>;
+pub type HkdfHteUtcAes256Gcm = HkdfHte<UtcAes256Gcm, Sha512>;
 
 // Here's the current definition:
 //
@@ -36,8 +35,9 @@ pub type HteUtcAes256Gcm = HkdfHte<UtcAes256Gcm, Sha512>;
 const EXTRACT_DOMAIN_SEP: &[u8] = b"HkdfHte";
 
 /// The Hash-then-Encrypt transform over a generic AEAD and hash function. This converts any
-/// key-committing AEAD to a context-committing AEAD (i.e., CMTD-1 → CMTD-4). Its construction
-/// is described in Figure 6 of [Bellare and Hoang](https://eprint.iacr.org/2022/268).
+/// key-committing AEAD to a context-committing AEAD (i.e., CMTD-1 → CMTD-4), using the HKDF of the
+/// given hash. Its construction is described in Figure 6 of [Bellare and
+/// Hoang](https://eprint.iacr.org/2022/268).
 pub struct HkdfHte<A, H>
 where
     A: AeadInPlace + NewAead,
@@ -130,6 +130,6 @@ mod test {
     use super::*;
     use crate::util::test_aead_correctness;
 
-    test_aead_correctness!(HteUtcAes128Gcm, hte_utc_aes128_correctness);
-    test_aead_correctness!(HteUtcAes256Gcm, hte_utc_aes256_correctness);
+    test_aead_correctness!(HkdfHteUtcAes128Gcm, hkdfhte_utc_aes128_correctness);
+    test_aead_correctness!(HkdfHteUtcAes256Gcm, hkdfhte_utc_aes256_correctness);
 }

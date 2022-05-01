@@ -1,6 +1,7 @@
 mod cx_prf;
 mod hkdf_com_prf;
 mod hte_transform;
+mod mac_hte_transform;
 mod utc_transform;
 
 #[macro_use]
