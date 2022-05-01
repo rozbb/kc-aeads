@@ -1,12 +1,11 @@
 //! Defines the `HtE` key-committing → everything committing (CMTD-1 → CMTD-4) AEAD transform
 //! described in <https://eprint.iacr.org/2022/268> §3
 
-use crate::utc_transform::UtcAes128Gcm;
+use crate::utc_transform::{UtcAes128Gcm, UtcAes256Gcm};
 
 use core::marker::PhantomData;
 
 use aead::{AeadCore, AeadInPlace, Error, Key, NewAead, Nonce, Tag};
-use aes::Aes128;
 use blake2::Blake2bMac;
 use digest::{
     typenum::{U32, U64},
@@ -18,7 +17,7 @@ use zeroize::Zeroize;
 pub type HteUtcAes128Gcm = Hte<UtcAes128Gcm, Blake2bMac<U32>>;
 
 /// An everything-committing AEAD built on top of AES-256-GCM
-pub type HteUtcAes256Gcm = Hte<UtcAes128Gcm, Blake2bMac<U64>>;
+pub type HteUtcAes256Gcm = Hte<UtcAes256Gcm, Blake2bMac<U64>>;
 
 /// The Hash-then-Encrypt transform over a generic AEAD and MAC. This converts any key-committing
 /// AEAD to an everything-committing AEAD (i.e., CMTD-1 → CMTD-4). Its construction is described in

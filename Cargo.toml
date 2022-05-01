@@ -7,8 +7,7 @@ edition = "2021"
 
 [dependencies]
 aes = "0.8"
-#aes-gcm = "0.10.0-pre"
-aes-gcm = { path = "../AEADs/aes-gcm" }
+aes-gcm = { git = "https://github.com/rozbb/AEADs", branch = "clobbering-decrypt" }
 aead = { version = "0.4", default-features = false }
 blake2 = "0.10"
 cipher = "0.4"
