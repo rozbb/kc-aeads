@@ -8,6 +8,8 @@ use cmac::Cmac;
 use digest::{Key as MacKey, KeyInit, Mac};
 use zeroize::Zeroize;
 
+pub type HteUtcAes128Gcm = Hte<UtcAes128Gcm, Cmac<Aes128>>;
+
 /// The Hash-then-Encrypt transform described in Figure 6 of the paper. This converts any
 /// key-committing AEAD to an everything-committing AEAD.
 pub struct Hte<A, M>
@@ -108,5 +110,3 @@ where
         ciph.decrypt_in_place_detached(nonce, &[], buffer, tag)
     }
 }
-
-pub type HteUtcAes128Gcm = Hte<UtcAes128Gcm, Cmac<Aes128>>;
