@@ -32,10 +32,10 @@ High-level things implemented:
 
 # Questions
 
-* I have the CX[E] PRF implemented to produce 256-bit commitments for AES-128 and 512-bit commitments for AES-256. Is that correct? The reason I think it is is because thoerem 7.2 links key-committing security to "binding" security of the PRF. This comes down to collision resistance in the commitment. On the other hand, proposition 7.1 says that the binding security of CX[E] is limited by the collision resistance of a one-block Davies-Meyer PRF. In that case, this is totally insecure (since block size is 128) and I shouldn't use CX[E] at all.
-* The main reason I'm using CX is because someone using AES for encryption might reasonable have HW acceleration and want to use AES for PRFs and hashing too. So similar question: what should I use instead of Blake2b in the HtE transform for AES? CMAC/PMAC/CBC-MAC digests are too small.
-* It appears that RtC (Figure 16) requires the ciphertext to be at least one block long. That's a pain as far as API design goes. Is there a way around this?
-* Are CAU and CAU-C1 (Section 5) worth implementing? They have really low overhead, but it says explicitly in the discussion that key-commitment can be broken with 2^64 work. If our goal with this library is developer ease-of-use, is that bound sufficiently high?
+1. I have the CX[E] PRF implemented to produce 256-bit commitments for AES-128 and 512-bit commitments for AES-256. Is that correct? The reason I think it is is because thoerem 7.2 links key-committing security to "binding" security of the PRF. This comes down to collision resistance in the commitment. On the other hand, proposition 7.1 says that the binding security of CX[E] is limited by the collision resistance of a one-block Davies-Meyer PRF. In that case, this is totally insecure (since block size is 128) and I shouldn't use CX[E] at all.
+2. The main reason I'm using CX is because someone using AES for encryption might reasonable have HW acceleration and want to use AES for PRFs and hashing too. So similar question: what should I use instead of Blake2b in the HtE transform for AES? CMAC/PMAC/CBC-MAC digests are too small.
+3. It appears that RtC (Figure 16) requires the ciphertext to be at least one block long. That's a pain as far as API design goes. Is there a way around this?
+4. Are CAU and CAU-C1 (Section 5) worth implementing? They have really low overhead, but it says explicitly in the discussion that key-commitment can be broken with 2^64 work. If our goal with this library is developer ease-of-use, is that bound sufficiently high?
 
 ## Warning
 
