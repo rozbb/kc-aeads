@@ -9,12 +9,14 @@ edition = "2021"
 aes = "0.8"
 #aes-gcm = "0.10.0-pre"
 aes-gcm = { path = "../AEADs/aes-gcm" }
-sha2 = "0.10"
 aead = { version = "0.4", default-features = false }
 cipher = "0.4"
-zeroize = { version = "1", features = [ "derive" ] }
+cmac = "0.7"
+digest = { version = "0.10", features = [ "mac" ] }
 rand_core = "0.6"
+sha2 = "0.10"
 subtle = "2.4"
+zeroize = { version = "1", features = [ "derive" ] }
 
 [dev-dependencies]
 rand = { version = "0.8", features = [ "std", "std_rng" ] }
