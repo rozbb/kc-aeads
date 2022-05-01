@@ -7,7 +7,7 @@ use cipher::{
 };
 
 // The size of an AES-GCM nonce
-type NonceSize = U12;
+type AesGcmNonceSize = U12;
 
 // Mask has to be used as an encryption key
 pub(crate) type CxMask<Ciph> = Key<Ciph>;
@@ -19,7 +19,7 @@ pub(crate) type CxCom<Ciph> = GenericArray<u8, DoubleKeySize<Ciph>>;
 
 /// A helper trait for a _committing PRF_, which returns a commitment and a mask. This is defined
 /// in §7.
-pub(crate) trait CommittingPrf {
+pub trait CommittingPrf {
     type MsgSize: ArrayLength<u8>;
     type ComSize: ArrayLength<u8>;
     type MaskSize: ArrayLength<u8>;
@@ -34,15 +34,19 @@ pub(crate) trait CommittingPrf {
     );
 }
 
-/// The `CX[E]` committing PRF, defined over any block cipher `E`.
-pub(crate) struct CxPrf<'a, Ciph>(&'a Ciph)
+/// The `CX[E]` committing PRF, defined over a block cipher `E`.
+///
+/// NOTE: `E::KeySize` MUST be a multiple of `E::BlockSize`. `Self::prf()` will panic otherwise.
+pub struct CxPrf<'a, Ciph>(pub(crate) &'a Ciph)
 where
     Ciph: BlockEncrypt + KeySizeUser,
     <Ciph::BlockSize as ArrayLength<u8>>::ArrayType: Copy,
     Ciph::KeySize: AddLength<u8, Ciph::KeySize>;
 
-// Define CX[E] for any block cipher cipher. Our definition only works with messages of 12 bytes,
-// since that's what we'll need for AES-GCM
+// Define CX[E] for any block cipher. Our definition only accepts messages of 12 bytes, since
+// that's what we'll need for AES-GCM.
+//
+/// NOTE: `E::KeySize` MUST be a multiple of `E::BlockSize`. `Self::prf()` will panic otherwise.
 impl<Ciph> CommittingPrf for CxPrf<'_, Ciph>
 where
     Ciph: BlockEncrypt + KeySizeUser,
@@ -50,7 +54,7 @@ where
     Ciph::KeySize: AddLength<u8, Ciph::KeySize>,
 {
     // Again, we only care about PRFing nonces
-    type MsgSize = NonceSize;
+    type MsgSize = AesGcmNonceSize;
 
     type ComSize = DoubleKeySize<Ciph>;
     type MaskSize = Ciph::KeySize;
@@ -71,7 +75,7 @@ where
     // where pad(M, i) = M || 0x00 ... 0x00 || (i as u8), padding to the size of a cipher block.
 
     /// The `CX[E]` PRF. Returns `(P, L)` where `P` is the "commitment" and `L` is the "mask"
-    fn prf(&self, nonce: &GenericArray<u8, NonceSize>) -> (CxCom<Ciph>, CxMask<Ciph>) {
+    fn prf(&self, nonce: &GenericArray<u8, AesGcmNonceSize>) -> (CxCom<Ciph>, CxMask<Ciph>) {
         // These should be a rounding-up division. But the numerator is always a multiple of block
         // size so it doesn't matter.
         let num_com_blocks = Self::ComSize::USIZE / Ciph::BlockSize::USIZE;
@@ -90,7 +94,7 @@ where
         let blocks = &mut block_buf[..num_total_blocks];
 
         for (i, block) in blocks.iter_mut().enumerate() {
-            block[..NonceSize::USIZE].copy_from_slice(nonce);
+            block[..AesGcmNonceSize::USIZE].copy_from_slice(nonce);
             block[Ciph::BlockSize::USIZE - 1] = (i + 1) as u8;
         }
 
@@ -129,37 +133,69 @@ where
     }
 }
 
-// Simple test: make sure that cx_prf() doesn't panic
-#[test]
-fn basic_cx_prf() {
-    use aes::{Aes128, Aes256};
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    use aes::{Aes128, Aes192, Aes256};
     use aes_gcm::Nonce;
     use cipher::{Key, KeyInit};
-    use rand::RngCore;
+    use rand::{thread_rng, RngCore};
 
-    let mut rng = rand::thread_rng();
+    // Simple test: make sure that prf() doesn't panic for AES-128
+    #[test]
+    fn cx_aes128() {
+        let mut rng = thread_rng();
 
-    let nonce = {
-        let mut buf = Nonce::default();
-        rng.fill_bytes(&mut buf);
-        buf
-    };
+        let nonce = {
+            let mut buf = Nonce::default();
+            rng.fill_bytes(&mut buf);
+            buf
+        };
+        let key = {
+            let mut buf = Key::<Aes128>::default();
+            rng.fill_bytes(buf.as_mut_slice());
+            buf
+        };
+        let ciph = Aes128::new(&key);
+        CxPrf(&ciph).prf(&nonce);
+    }
 
-    // Test AES-128
-    let key = {
-        let mut buf = Key::<Aes128>::default();
-        rng.fill_bytes(buf.as_mut_slice());
-        buf
-    };
-    let ciph = Aes128::new(&key);
-    CxPrf(&ciph).prf(&nonce);
+    // Simple test: make sure that prf() doesn't panic for AES-256
+    #[test]
+    fn cx_aes256() {
+        let mut rng = thread_rng();
 
-    // Test AES-256
-    let key = {
-        let mut buf = Key::<Aes256>::default();
-        rng.fill_bytes(buf.as_mut_slice());
-        buf
-    };
-    let ciph = Aes256::new(&key);
-    CxPrf(&ciph).prf(&nonce);
+        let nonce = {
+            let mut buf = Nonce::default();
+            rng.fill_bytes(&mut buf);
+            buf
+        };
+        let key = {
+            let mut buf = Key::<Aes256>::default();
+            rng.fill_bytes(buf.as_mut_slice());
+            buf
+        };
+        let ciph = Aes256::new(&key);
+        CxPrf(&ciph).prf(&nonce);
+    }
+
+    #[should_panic]
+    #[test]
+    fn cx_aes192() {
+        let mut rng = thread_rng();
+
+        let nonce = {
+            let mut buf = Nonce::default();
+            rng.fill_bytes(&mut buf);
+            buf
+        };
+        let key = {
+            let mut buf = Key::<Aes192>::default();
+            rng.fill_bytes(buf.as_mut_slice());
+            buf
+        };
+        let ciph = Aes192::new(&key);
+        CxPrf(&ciph).prf(&nonce);
+    }
 }
