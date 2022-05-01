@@ -1,14 +1,13 @@
 //! Defines the `CX[E]` committing PRF scheme described in https://eprint.iacr.org/2022/268 §7
 
+use core::marker::PhantomData;
+
 use cipher::{
     generic_array::{arr::AddLength, ArrayLength, GenericArray},
-    typenum::{Unsigned, U12},
+    typenum::Unsigned,
     Block, BlockEncrypt, Key, KeySizeUser,
 };
 use digest::KeyInit;
-
-// The size of an AES-GCM nonce
-type AesGcmNonceSize = U12;
 
 // Mask has to be used as an encryption key
 pub(crate) type CxMask<Ciph> = Key<Ciph>;
@@ -38,14 +37,20 @@ pub trait CommittingPrf: KeyInit {
 /// The `CX[E]` committing PRF, defined over a block cipher `E`.
 ///
 /// NOTE: `E::KeySize` MUST be a multiple of `E::BlockSize`. `Self::prf()` will panic otherwise.
-pub struct CxPrf<Ciph>(pub(crate) Ciph)
+pub struct CxPrf<Ciph, MsgSize>
 where
+    MsgSize: ArrayLength<u8>,
     Ciph: BlockEncrypt + KeyInit,
     <Ciph::BlockSize as ArrayLength<u8>>::ArrayType: Copy,
-    Ciph::KeySize: AddLength<u8, Ciph::KeySize>;
+    Ciph::KeySize: AddLength<u8, Ciph::KeySize>,
+{
+    ciph: Ciph,
+    msg_size: PhantomData<MsgSize>,
+}
 
-impl<Ciph> KeySizeUser for CxPrf<Ciph>
+impl<Ciph, MsgSize> KeySizeUser for CxPrf<Ciph, MsgSize>
 where
+    MsgSize: ArrayLength<u8>,
     Ciph: BlockEncrypt + KeyInit,
     <Ciph::BlockSize as ArrayLength<u8>>::ArrayType: Copy,
     Ciph::KeySize: AddLength<u8, Ciph::KeySize>,
@@ -53,31 +58,37 @@ where
     type KeySize = Ciph::KeySize;
 }
 
-impl<Ciph> digest::KeyInit for CxPrf<Ciph>
+impl<Ciph, MsgSize> digest::KeyInit for CxPrf<Ciph, MsgSize>
 where
+    MsgSize: ArrayLength<u8>,
     Ciph: BlockEncrypt + KeyInit,
     <Ciph::BlockSize as ArrayLength<u8>>::ArrayType: Copy,
     Ciph::KeySize: AddLength<u8, Ciph::KeySize>,
 {
     fn new(key: &Key<Ciph>) -> Self {
-        CxPrf(Ciph::new(key))
+        CxPrf {
+            ciph: Ciph::new(key),
+            msg_size: PhantomData,
+        }
     }
 }
 
-// Define CX[E] for any block cipher. Our definition only accepts messages of 12 bytes, since
-// that's what we'll need for AES-GCM.
+// Define CX[E] for any block cipher
 //
-/// NOTE: `E::KeySize` MUST be a multiple of `E::BlockSize`. `Self::prf()` will panic otherwise.
-impl<Ciph> CommittingPrf for CxPrf<Ciph>
+// NOTE: `E::KeySize` MUST be a multiple of `E::BlockSize`. `Self::prf()` will panic otherwise.
+impl<Ciph, MsgSize> CommittingPrf for CxPrf<Ciph, MsgSize>
 where
+    MsgSize: ArrayLength<u8>,
     Ciph: BlockEncrypt + KeyInit,
     <Ciph::BlockSize as ArrayLength<u8>>::ArrayType: Copy,
     Ciph::KeySize: AddLength<u8, Ciph::KeySize>,
 {
-    // Again, we only care about PRFing nonces
-    type MsgSize = AesGcmNonceSize;
+    type MsgSize = MsgSize;
 
+    /// PRF commitment must be 2x key size in order to provide collision resistance
     type ComSize = DoubleKeySize<Ciph>;
+
+    /// PRF mask must be equal to key size because it's used as a key
     type MaskSize = Ciph::KeySize;
 
     // Paraphrasing Figure 14 of the paper:
@@ -96,7 +107,13 @@ where
     // where pad(M, i) = M || 0x00 ... 0x00 || (i as u8), padding to the size of a cipher block.
 
     /// The `CX[E]` PRF. Returns `(P, L)` where `P` is the "commitment" and `L` is the "mask"
-    fn prf(&self, nonce: &GenericArray<u8, AesGcmNonceSize>) -> (CxCom<Ciph>, CxMask<Ciph>) {
+    fn prf(
+        &self,
+        msg: &GenericArray<u8, MsgSize>,
+    ) -> (
+        GenericArray<u8, Self::ComSize>,
+        GenericArray<u8, Self::MaskSize>,
+    ) {
         // These should be a rounding-up division. But the numerator is always a multiple of block
         // size so it doesn't matter.
         let num_com_blocks = Self::ComSize::USIZE / Ciph::BlockSize::USIZE;
@@ -115,7 +132,7 @@ where
         let blocks = &mut block_buf[..num_total_blocks];
 
         for (i, block) in blocks.iter_mut().enumerate() {
-            block[..AesGcmNonceSize::USIZE].copy_from_slice(nonce);
+            block[..MsgSize::USIZE].copy_from_slice(msg);
             block[Ciph::BlockSize::USIZE - 1] = (i + 1) as u8;
         }
 
@@ -123,7 +140,7 @@ where
         let block0 = blocks[0].clone();
 
         // Now encrypt all the blocks
-        self.0.encrypt_blocks(blocks);
+        self.ciph.encrypt_blocks(blocks);
 
         // Finally, XOR block 0 into the 0th ciphertext
         blocks[0]
@@ -159,17 +176,20 @@ mod test {
     use super::*;
 
     use aes::{Aes128, Aes192, Aes256};
-    use aes_gcm::Nonce;
-    use cipher::{Key, KeyInit};
+    use cipher::{typenum::U12, Key};
     use rand::{thread_rng, RngCore};
 
-    // Simple test: make sure that prf() doesn't panic for AES-128
+    //
+    // In the below tests we run CX[AES] with msg size 12, since 12 is the size of an AES-GCM nonce
+    //
+
+    // Make sure that prf() doesn't panic for AES-128 and msg size 12
     #[test]
     fn cx_aes128() {
         let mut rng = thread_rng();
 
         let nonce = {
-            let mut buf = Nonce::default();
+            let mut buf = GenericArray::<u8, U12>::default();
             rng.fill_bytes(&mut buf);
             buf
         };
@@ -178,16 +198,16 @@ mod test {
             rng.fill_bytes(buf.as_mut_slice());
             buf
         };
-        CxPrf::<Aes128>::new(&key).prf(&nonce);
+        CxPrf::<Aes128, U12>::new(&key).prf(&nonce);
     }
 
-    // Simple test: make sure that prf() doesn't panic for AES-256
+    // Make sure that prf() doesn't panic for AES-256 and msg size 12
     #[test]
     fn cx_aes256() {
         let mut rng = thread_rng();
 
         let nonce = {
-            let mut buf = Nonce::default();
+            let mut buf = GenericArray::<u8, U12>::default();
             rng.fill_bytes(&mut buf);
             buf
         };
@@ -196,7 +216,7 @@ mod test {
             rng.fill_bytes(buf.as_mut_slice());
             buf
         };
-        CxPrf::<Aes256>::new(&key).prf(&nonce);
+        CxPrf::<Aes256, U12>::new(&key).prf(&nonce);
     }
 
     #[should_panic]
@@ -205,7 +225,7 @@ mod test {
         let mut rng = thread_rng();
 
         let nonce = {
-            let mut buf = Nonce::default();
+            let mut buf = GenericArray::<u8, U12>::default();
             rng.fill_bytes(&mut buf);
             buf
         };
@@ -214,6 +234,6 @@ mod test {
             rng.fill_bytes(buf.as_mut_slice());
             buf
         };
-        CxPrf::<Aes192>::new(&key).prf(&nonce);
+        CxPrf::<Aes192, U12>::new(&key).prf(&nonce);
     }
 }

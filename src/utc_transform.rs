@@ -4,18 +4,15 @@ use crate::cx_prf::{CommittingPrf, CxPrf};
 
 use aead::{AeadCore, AeadInPlace, Error, NewAead, Nonce, Tag};
 use aes::{Aes128, Aes256};
-use aes_gcm::{Aes128Gcm, Aes256Gcm, AesGcm, ClobberingDecrypt};
+use aes_gcm::{Aes128Gcm, Aes256Gcm, ClobberingDecrypt};
 use cipher::{
-    generic_array::{arr::AddLength, ArrayLength, GenericArray},
-    typenum::{Unsigned, U0, U12, U16},
-    BlockCipher, BlockEncrypt, BlockSizeUser, KeyInit, KeySizeUser,
+    generic_array::{arr::AddLength, GenericArray},
+    typenum::{Unsigned, U12},
 };
 use subtle::ConstantTimeEq;
 
-type AesGcmNonceSize = U12;
-
-pub type UtcAes128Gcm = Utc<Aes128Gcm, CxPrf<Aes128>>;
-pub type UtcAes256Gcm = Utc<Aes256Gcm, CxPrf<Aes256>>;
+pub type UtcAes128Gcm = Utc<Aes128Gcm, CxPrf<Aes128, U12>>;
+pub type UtcAes256Gcm = Utc<Aes256Gcm, CxPrf<Aes256, U12>>;
 
 /// The UtC transformation over a generic AEAD
 pub struct Utc<A, F>
