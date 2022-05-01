@@ -7,11 +7,11 @@ edition = "2021"
 
 [dependencies]
 aes = "0.8"
+aes-gcm = "0.9"
 sha2 = "0.10"
 aead = "0.4"
 cipher = "0.4"
 zeroize = { version = "1", features = [ "derive" ] }
-block-padding = "0.3.2"
 
-[dependencies.aes-gcm-siv]
-path = "../AEADs/aes-gcm-siv"
+[dev-dependencies]
+rand = { version = "0.8", features = [ "std", "std_rng" ] }

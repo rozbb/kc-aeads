@@ -1,35 +1,30 @@
-//! Defines the CX[E] committing PRF scheme described in https://eprint.iacr.org/2022/268 §7
+//! Defines the `CX[E]` committing PRF scheme described in https://eprint.iacr.org/2022/268 §7
 
-use block_padding::AnsiX923;
 use cipher::{
     generic_array::{arr::AddLength, ArrayLength, GenericArray},
-    typenum::{op, Unsigned, U12, U2},
-    Block, BlockEncrypt, BlockSizeUser, Key, KeySizeUser,
+    typenum::{Unsigned, U12},
+    Block, BlockEncrypt, Key, KeySizeUser,
 };
-use core::iter;
 
-// Defines Cx over a generic block cipher
-struct Cx<Ciph>(Ciph)
-where
-    Ciph: BlockEncrypt + KeySizeUser;
-
+// The size of an AES-GCM nonce
 type NonceSize = U12;
-type DoubleKeySize<Ciph> =
-    <<Ciph as KeySizeUser>::KeySize as AddLength<u8, <Ciph as KeySizeUser>::KeySize>>::Output;
 
 // Mask has to be used as an encryption key
 pub(crate) type CxMask<Ciph> = Key<Ciph>;
 
 // Com has to be collision resistant. So it should be 2x the keysize
+type DoubleKeySize<Ciph> =
+    <<Ciph as KeySizeUser>::KeySize as AddLength<u8, <Ciph as KeySizeUser>::KeySize>>::Output;
 pub(crate) type CxCom<Ciph> = GenericArray<u8, DoubleKeySize<Ciph>>;
 
-/*
-pub(crate) trait CxPrf {
+/// A helper trait for a _committing PRF_, which returns a commitment and a mask. This is defined
+/// in §7.
+pub(crate) trait CommittingPrf {
     type MsgSize: ArrayLength<u8>;
     type ComSize: ArrayLength<u8>;
     type MaskSize: ArrayLength<u8>;
 
-    /// The CX[E] PRF. Returns (P, L) where P is the "commitment" and L is the "mask"
+    /// A PRF function that returns a commitment and a mask.
     fn prf(
         &self,
         msg: &GenericArray<u8, Self::MsgSize>,
@@ -38,32 +33,61 @@ pub(crate) trait CxPrf {
         GenericArray<u8, Self::MaskSize>,
     );
 }
-*/
 
-impl<Ciph> Cx<Ciph>
+/// The `CX[E]` committing PRF, defined over any block cipher `E`.
+pub(crate) struct CxPrf<'a, Ciph>(&'a Ciph)
+where
+    Ciph: BlockEncrypt + KeySizeUser,
+    <Ciph::BlockSize as ArrayLength<u8>>::ArrayType: Copy,
+    Ciph::KeySize: AddLength<u8, Ciph::KeySize>;
+
+// Define CX[E] for any block cipher cipher. Our definition only works with messages of 12 bytes,
+// since that's what we'll need for AES-GCM
+impl<Ciph> CommittingPrf for CxPrf<'_, Ciph>
 where
     Ciph: BlockEncrypt + KeySizeUser,
     <Ciph::BlockSize as ArrayLength<u8>>::ArrayType: Copy,
     Ciph::KeySize: AddLength<u8, Ciph::KeySize>,
 {
-    // Size of the CX com value (P), in blocks
-    const COM_BLOCKS: usize =
-        (DoubleKeySize::<Ciph>::USIZE + Ciph::BlockSize::USIZE - 1) / Ciph::BlockSize::USIZE;
-    // Size of the CX mask value (L), in blocks
-    const MASK_BLOCKS: usize = (<Ciph as KeySizeUser>::KeySize::USIZE + Ciph::BlockSize::USIZE - 1)
-        / Ciph::BlockSize::USIZE;
+    // Again, we only care about PRFing nonces
+    type MsgSize = NonceSize;
 
-    /// The CX[E] PRF. Returns (P, L) where P is the "commitment" and L is the "mask"
-    pub(crate) fn prf(&self, nonce: &GenericArray<u8, NonceSize>) -> (CxCom<Ciph>, CxMask<Ciph>) {
+    type ComSize = DoubleKeySize<Ciph>;
+    type MaskSize = Ciph::KeySize;
+
+    // Paraphrasing Figure 14 of the paper:
+    //
+    // CX[E](K, M):
+    //     num_total_blocks = num_com_blocks + num_mask_blocks
+    //     for i in num_total_blocks:
+    //         Xᵢ ← pad(M, i)
+    //         Vᵢ ← E_K(Xᵢ)
+    //         V₁ ← V₁ ⊕ X₁
+    //
+    //      com ← (X₁, ..., X_{num_com_blocks})
+    //      mask ← (X_{num_com_blocks+1}, ..., X_{num_mask_blocks})
+    //
+    //      return (com, mask)
+    // where pad(M, i) = M || 0x00 ... 0x00 || (i as u8), padding to the size of a cipher block.
+
+    /// The `CX[E]` PRF. Returns `(P, L)` where `P` is the "commitment" and `L` is the "mask"
+    fn prf(&self, nonce: &GenericArray<u8, NonceSize>) -> (CxCom<Ciph>, CxMask<Ciph>) {
+        // These should be a rounding-up division. But the numerator is always a multiple of block
+        // size so it doesn't matter.
+        let num_com_blocks = Self::ComSize::USIZE / Ciph::BlockSize::USIZE;
+        let num_mask_blocks = Self::MaskSize::USIZE / Ciph::BlockSize::USIZE;
+        let num_total_blocks = num_com_blocks + num_mask_blocks;
+
         // Compute pad(nonce, 1), pad(nonce, 2), pad(nonce, 3), pad(nonce 4), where pad(M, i) is
         // the concatenation of M and a (block_size - msg_size)-bit encoding of i.
 
-        // In stable we can't make an array of size COM_BLOCKS+MASK_BLOCKS. The error is
+        // In stable we can't make an array of size num_com_blocks + num_mask_blocks. The error is
         //     Error: constant expression depends on a generic parameter
         // This requires the const_evaluatable_checked feature
-        // Tracking issue: https://github.com/rust-lang/rust/issues/76560
+        // (https://github.com/rust-lang/rust/issues/76560). So instead we just use a buf of the
+        // maximum size, 6 blocks, and take an appropriately sized slice.
         let mut block_buf = [Block::<Ciph>::default(); 6];
-        let blocks = &mut block_buf[..Self::COM_BLOCKS + Self::MASK_BLOCKS];
+        let blocks = &mut block_buf[..num_total_blocks];
 
         for (i, block) in blocks.iter_mut().enumerate() {
             block[..NonceSize::USIZE].copy_from_slice(nonce);
@@ -73,7 +97,7 @@ where
         // Save block 0 for XORing
         let block0 = blocks[0].clone();
 
-        // Now encrypt
+        // Now encrypt all the blocks
         self.0.encrypt_blocks(blocks);
 
         // Finally, XOR block 0 into the 0th ciphertext
@@ -82,11 +106,11 @@ where
             .zip(block0.iter())
             .for_each(|(c, m)| *c ^= m);
 
-        // com is the first COM_BLOCKS blocks, and mask is the next MASK_BLOCKS blocks
+        // com is the first `num_com_blocks` blocks, and mask is the next `num_mask_blocks` blocks
         let com = CxCom::<Ciph>::from_exact_iter(
             blocks
                 .iter()
-                .take(Self::COM_BLOCKS)
+                .take(num_com_blocks)
                 .flat_map(IntoIterator::into_iter)
                 .cloned(),
         )
@@ -94,8 +118,8 @@ where
         let mask = CxMask::<Ciph>::from_exact_iter(
             blocks
                 .iter()
-                .skip(Self::COM_BLOCKS)
-                .take(Self::MASK_BLOCKS)
+                .skip(num_com_blocks)
+                .take(num_mask_blocks)
                 .flat_map(IntoIterator::into_iter)
                 .cloned(),
         )
@@ -105,24 +129,37 @@ where
     }
 }
 
+// Simple test: make sure that cx_prf() doesn't panic
 #[test]
-fn test_cx() {
+fn basic_cx_prf() {
     use aes::{Aes128, Aes256};
+    use aes_gcm::Nonce;
     use cipher::{Key, KeyInit};
+    use rand::RngCore;
 
-    let key = Key::<Aes128>::default();
-    let nonce = GenericArray::<u8, NonceSize>::default();
+    let mut rng = rand::thread_rng();
+
+    let nonce = {
+        let mut buf = Nonce::default();
+        rng.fill_bytes(&mut buf);
+        buf
+    };
+
+    // Test AES-128
+    let key = {
+        let mut buf = Key::<Aes128>::default();
+        rng.fill_bytes(buf.as_mut_slice());
+        buf
+    };
     let ciph = Aes128::new(&key);
+    CxPrf(&ciph).prf(&nonce);
 
-    let (com, mask) = Cx(ciph).prf(&nonce);
-    println!(" com: {:x?}", com);
-    println!("mask: {:x?}", mask);
-
-    let key = Key::<Aes256>::default();
-    let nonce = GenericArray::<u8, NonceSize>::default();
+    // Test AES-256
+    let key = {
+        let mut buf = Key::<Aes256>::default();
+        rng.fill_bytes(buf.as_mut_slice());
+        buf
+    };
     let ciph = Aes256::new(&key);
-
-    let (com, mask) = Cx(ciph).prf(&nonce);
-    println!(" com: {:x?}", com);
-    println!("mask: {:x?}", mask);
+    CxPrf(&ciph).prf(&nonce);
 }
