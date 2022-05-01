@@ -1,6 +1,6 @@
 //! Defines an HKDF-based committing PRF for generic hash functions
 
-use crate::util::{CommittingPrf, DoubleKeySize};
+use crate::util::CommittingPrf;
 
 use core::marker::PhantomData;
 
@@ -14,58 +14,58 @@ use hkdf::SimpleHkdf;
 // Here's the current definition:
 //
 // HkdfComPrf[H].Prf(K, N):
-//     prk ← HKDF[H].Extract(salt="HkdfComPrf", ikm=K)
-//     com ← HKDF[H].Expand(prk, info="P" || N, len=2*|K|)
-//     mask ← HKDF[H].Expand(prk, info="L" || N, len=|K|)
+//     com ← HKDF[H].Expand(prk=K, info="P" || N, len=|K|)
+//     mask ← HKDF[H].Expand(prk=K, info="L" || N, len=|K|/2)
 //     return (com, mask)
 
-const EXTRACT_DOMAIN_SEP: &[u8] = b"HkdfComPrf";
-
 /// A committing PRF derived from HKDF, defined over a hash funtion `H`
-pub struct HkdfComPrf<H, KeySize, MsgSize>
+pub struct HkdfComPrf<H, MaskSize, MsgSize>
 where
     H: BlockSizeUser + Clone + Digest + OutputSizeUser,
+    MaskSize: ArrayLength<u8>,
+    MaskSize: AddLength<u8, MaskSize>,
     MsgSize: ArrayLength<u8>,
-    KeySize: ArrayLength<u8>,
 {
     hkdf: SimpleHkdf<H>,
-    _marker: PhantomData<(KeySize, MsgSize)>,
+    _marker: PhantomData<(MaskSize, MsgSize)>,
 }
 
-impl<H, KeySize, MsgSize> KeySizeUser for HkdfComPrf<H, KeySize, MsgSize>
+impl<H, MaskSize, MsgSize> KeySizeUser for HkdfComPrf<H, MaskSize, MsgSize>
 where
     H: BlockSizeUser + Clone + Digest + OutputSizeUser,
-    KeySize: ArrayLength<u8>,
+    MaskSize: ArrayLength<u8>,
+    MaskSize: AddLength<u8, MaskSize>,
     MsgSize: ArrayLength<u8>,
 {
-    type KeySize = KeySize;
+    type KeySize = <MaskSize as AddLength<u8, MaskSize>>::Output;
 }
 
-impl<H, KeySize, MsgSize> KeyInit for HkdfComPrf<H, KeySize, MsgSize>
+impl<H, MaskSize, MsgSize> KeyInit for HkdfComPrf<H, MaskSize, MsgSize>
 where
     H: BlockSizeUser + Clone + Digest + OutputSizeUser,
-    KeySize: ArrayLength<u8>,
+    MaskSize: ArrayLength<u8>,
+    MaskSize: AddLength<u8, MaskSize>,
     MsgSize: ArrayLength<u8>,
 {
     fn new(key: &Key<Self>) -> Self {
         // We can unwrap() below because the only possible error is InvalidPrkLength
         HkdfComPrf {
-            hkdf: SimpleHkdf::extract(Some(EXTRACT_DOMAIN_SEP), key).1,
+            hkdf: SimpleHkdf::from_prk(&key).unwrap(),
             _marker: PhantomData,
         }
     }
 }
 
-impl<H, KeySize, MsgSize> CommittingPrf for HkdfComPrf<H, KeySize, MsgSize>
+impl<H, MaskSize, MsgSize> CommittingPrf for HkdfComPrf<H, MaskSize, MsgSize>
 where
     H: BlockSizeUser + Clone + Digest + OutputSizeUser,
-    KeySize: ArrayLength<u8>,
+    MaskSize: ArrayLength<u8>,
+    MaskSize: AddLength<u8, MaskSize>,
     MsgSize: ArrayLength<u8>,
-    <Self as KeySizeUser>::KeySize: AddLength<u8, <Self as KeySizeUser>::KeySize>,
 {
+    type ComSize = Self::KeySize;
+    type MaskSize = MaskSize;
     type MsgSize = MsgSize;
-    type ComSize = DoubleKeySize<Self>;
-    type MaskSize = Self::KeySize;
 
     fn prf(
         &self,

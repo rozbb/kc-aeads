@@ -1,15 +1,12 @@
 //! Defines the `HtE` key-committing → context-committing (CMTD-1 → CMTD-4) AEAD transform
 //! described in <https://eprint.iacr.org/2022/268> §3
 
-use crate::{
-    utc_transform::{UtcAes128Gcm, UtcAes256Gcm},
-    util::DoubleKeySize,
-};
+use crate::utc_transform::{UtcAes128Gcm, UtcAes256Gcm};
 
 use core::marker::PhantomData;
 
 use aead::{AeadCore, AeadInPlace, Error, Key, NewAead, Nonce, Tag};
-use cipher::{generic_array::arr::AddLength, BlockSizeUser, KeySizeUser};
+use cipher::BlockSizeUser;
 use digest::{Digest, OutputSizeUser};
 use hkdf::SimpleHkdf;
 use sha2::{Sha256, Sha512};
@@ -26,13 +23,13 @@ pub type HteUtcAes256Gcm = HkdfHte<UtcAes256Gcm, Sha512>;
 //
 // HkdfHte[H,A].Enc(K, N, A, M):
 //     prk ← HKDF[H].Extract(salt="HkdfHte", ikm=K)
-//     enc_key ← HKDF[H].Expand(prk, info=N || A, len=|K|/2)
+//     enc_key ← HKDF[H].Expand(prk, info=N || A, len=|K|)
 //     C ← A.Enc(enc_key, N, "", M)
 //     return C
 //
 // HkdfHte[H,A].Dec(K, N, A, C):
 //     prk ← HKDF[H].Extract(salt="HkdfHte", ikm=K)
-//     enc_key ← HKDF[H].Expand(prk, info=N || A, len=|K|/2)
+//     enc_key ← HKDF[H].Expand(prk, info=N || A, len=|K|)
 //     M ← A.Dec(enc_key, N, "", C)
 //     return M
 
@@ -62,11 +59,10 @@ where
 
 impl<A, H> NewAead for HkdfHte<A, H>
 where
-    A: AeadInPlace + KeySizeUser + NewAead,
-    <A as KeySizeUser>::KeySize: AddLength<u8, <A as KeySizeUser>::KeySize>,
+    A: AeadInPlace + NewAead,
     H: BlockSizeUser + Clone + Digest + OutputSizeUser,
 {
-    type KeySize = DoubleKeySize<A>;
+    type KeySize = A::KeySize;
 
     fn new(key: &Key<Self>) -> Self {
         HkdfHte {
@@ -78,8 +74,7 @@ where
 
 impl<A, H> AeadInPlace for HkdfHte<A, H>
 where
-    A: AeadInPlace + KeySizeUser + NewAead,
-    <A as KeySizeUser>::KeySize: AddLength<u8, <A as KeySizeUser>::KeySize>,
+    A: AeadInPlace + NewAead,
     H: BlockSizeUser + Clone + Digest + OutputSizeUser,
 {
     // We take an underlying Enc and define an Enc'. From Figure 6:
