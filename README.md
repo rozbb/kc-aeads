@@ -1,12 +1,12 @@
 # kc-aeads
 
-Pure Rust implementations of the key-committing (and everything-committing) AEADs defined in [Bellare and Hoang '22](https://eprint.iacr.org/2022/268).
+Pure Rust implementations of the key-committing (and context-committing) AEADs defined in [Bellare and Hoang '22](https://eprint.iacr.org/2022/268).
 
 Crash course on the paper:
 
 * The UtC transform converts an AEAD into a key-committing AEAD
 * The RtC transform converts a misuse-resistant AEAD into a key-committing misuse-resistant AEAD
-* The HtE transform converts a key-committing AEAD to an everything-comitting (aka CMTD-4) AEAD, i.e., an AEAD whose ciphertext-tag output commits to the key, nonce, associated data, and plaintext. This is not the same as key-committing. Using an example from the paper, recall AES-GCM and hence UtC[AES-GCM] has a tag size of 128 bits. If the plaintext is empty, then this the tag is essentially a 128-bit MAC over the authenticated associated data (AAD). This is too short to be binding: for a fixed key an adversary could find two AAD strings which produce a collision in time 2^64. Thus, UtC[AES-GCM] is not AAD-committing (indeed HtE handles AAD entirely differently, using a collision-resistant hash instead of the AEAD).
+* The HtE transform converts a key-committing AEAD to an context-comitting (aka CMTD-4) AEAD, i.e., an AEAD whose ciphertext-tag output commits to the key, nonce, associated data, and plaintext. This is not the same as key-committing. Using an example from the paper, recall AES-GCM and hence UtC[AES-GCM] has a tag size of 128 bits. If the plaintext is empty, then this the tag is essentially a 128-bit MAC over the authenticated associated data (AAD). This is too short to be binding: for a fixed key an adversary could find two AAD strings which produce a collision in time 2^64. Thus, UtC[AES-GCM] is not AAD-committing (indeed HtE handles AAD entirely differently, using a collision-resistant hash instead of the AEAD).
 * The CX Committing PRF is a PRF constructed from a block cipher. Rather than returning a single output it returns a pseudorandom pair `(com, mask)`. This is used in the construction of UtC.
 
 ## Roadmap
