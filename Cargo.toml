@@ -1,9 +1,10 @@
 [package]
 name = "kc-aeads"
+authors = ["Michael Rosenberg <michael@mrosenberg.pub>"]
+readme = "README.md"
 version = "0.1.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+license = "MIT/Apache-2.0"
 
 [dependencies]
 aes = "0.8"
