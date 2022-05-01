@@ -5,6 +5,7 @@ use cipher::{
     typenum::{Unsigned, U12},
     Block, BlockEncrypt, Key, KeySizeUser,
 };
+use digest::KeyInit;
 
 // The size of an AES-GCM nonce
 type AesGcmNonceSize = U12;
@@ -19,7 +20,7 @@ pub(crate) type CxCom<Ciph> = GenericArray<u8, DoubleKeySize<Ciph>>;
 
 /// A helper trait for a _committing PRF_, which returns a commitment and a mask. This is defined
 /// in §7.
-pub trait CommittingPrf {
+pub trait CommittingPrf: KeyInit {
     type MsgSize: ArrayLength<u8>;
     type ComSize: ArrayLength<u8>;
     type MaskSize: ArrayLength<u8>;
@@ -37,19 +38,39 @@ pub trait CommittingPrf {
 /// The `CX[E]` committing PRF, defined over a block cipher `E`.
 ///
 /// NOTE: `E::KeySize` MUST be a multiple of `E::BlockSize`. `Self::prf()` will panic otherwise.
-pub struct CxPrf<'a, Ciph>(pub(crate) &'a Ciph)
+pub struct CxPrf<Ciph>(pub(crate) Ciph)
 where
-    Ciph: BlockEncrypt + KeySizeUser,
+    Ciph: BlockEncrypt + KeyInit,
     <Ciph::BlockSize as ArrayLength<u8>>::ArrayType: Copy,
     Ciph::KeySize: AddLength<u8, Ciph::KeySize>;
+
+impl<Ciph> KeySizeUser for CxPrf<Ciph>
+where
+    Ciph: BlockEncrypt + KeyInit,
+    <Ciph::BlockSize as ArrayLength<u8>>::ArrayType: Copy,
+    Ciph::KeySize: AddLength<u8, Ciph::KeySize>,
+{
+    type KeySize = Ciph::KeySize;
+}
+
+impl<Ciph> digest::KeyInit for CxPrf<Ciph>
+where
+    Ciph: BlockEncrypt + KeyInit,
+    <Ciph::BlockSize as ArrayLength<u8>>::ArrayType: Copy,
+    Ciph::KeySize: AddLength<u8, Ciph::KeySize>,
+{
+    fn new(key: &Key<Ciph>) -> Self {
+        CxPrf(Ciph::new(key))
+    }
+}
 
 // Define CX[E] for any block cipher. Our definition only accepts messages of 12 bytes, since
 // that's what we'll need for AES-GCM.
 //
 /// NOTE: `E::KeySize` MUST be a multiple of `E::BlockSize`. `Self::prf()` will panic otherwise.
-impl<Ciph> CommittingPrf for CxPrf<'_, Ciph>
+impl<Ciph> CommittingPrf for CxPrf<Ciph>
 where
-    Ciph: BlockEncrypt + KeySizeUser,
+    Ciph: BlockEncrypt + KeyInit,
     <Ciph::BlockSize as ArrayLength<u8>>::ArrayType: Copy,
     Ciph::KeySize: AddLength<u8, Ciph::KeySize>,
 {
@@ -157,8 +178,7 @@ mod test {
             rng.fill_bytes(buf.as_mut_slice());
             buf
         };
-        let ciph = Aes128::new(&key);
-        CxPrf(&ciph).prf(&nonce);
+        CxPrf::<Aes128>::new(&key).prf(&nonce);
     }
 
     // Simple test: make sure that prf() doesn't panic for AES-256
@@ -176,8 +196,7 @@ mod test {
             rng.fill_bytes(buf.as_mut_slice());
             buf
         };
-        let ciph = Aes256::new(&key);
-        CxPrf(&ciph).prf(&nonce);
+        CxPrf::<Aes256>::new(&key).prf(&nonce);
     }
 
     #[should_panic]
@@ -195,7 +214,6 @@ mod test {
             rng.fill_bytes(buf.as_mut_slice());
             buf
         };
-        let ciph = Aes192::new(&key);
-        CxPrf(&ciph).prf(&nonce);
+        CxPrf::<Aes192>::new(&key).prf(&nonce);
     }
 }

@@ -1,7 +1,10 @@
+use core::marker::PhantomData;
+
 use crate::cx_prf::{CommittingPrf, CxPrf};
 
 use aead::{AeadCore, AeadInPlace, Error, NewAead, Nonce, Tag};
-use aes_gcm::{AesGcm, ClobberingDecrypt};
+use aes::{Aes128, Aes256};
+use aes_gcm::{Aes128Gcm, Aes256Gcm, AesGcm, ClobberingDecrypt};
 use cipher::{
     generic_array::{arr::AddLength, ArrayLength, GenericArray},
     typenum::{Unsigned, U0, U12, U16},
@@ -9,68 +12,63 @@ use cipher::{
 };
 use subtle::ConstantTimeEq;
 
-pub type UtcAes128Gcm = UtcOverAesGcm<aes::Aes128>;
-pub type UtcAes256Gcm = UtcOverAesGcm<aes::Aes256>;
-
-// Convenience types
 type AesGcmNonceSize = U12;
-type AesGcmTagSize = U16;
-type CxComSize<Ciph> = <CxPrf<'static, Ciph> as CommittingPrf>::ComSize;
 
-/// New tag size is PRF commitment size + original GCM tag size
-type UtcTagSize<Ciph> = <CxComSize<Ciph> as AddLength<u8, AesGcmTagSize>>::Output;
+pub type UtcAes128Gcm = Utc<Aes128Gcm, CxPrf<Aes128>>;
+pub type UtcAes256Gcm = Utc<Aes256Gcm, CxPrf<Aes256>>;
 
-/// The UTC transformation for AES-GCM. `Ciph` is either `Aes128` or `Aes256`
-pub struct UtcOverAesGcm<Ciph>(Ciph)
+/// The UtC transformation over a generic AEAD
+pub struct Utc<A, F>
 where
-    Ciph: BlockEncrypt + KeySizeUser,
-    <Ciph::BlockSize as ArrayLength<u8>>::ArrayType: Copy,
-    Ciph::KeySize: AddLength<u8, Ciph::KeySize>,
-    CxComSize<Ciph>: AddLength<u8, AesGcmTagSize>;
-
-impl<Ciph> AeadCore for UtcOverAesGcm<Ciph>
-where
-    Ciph: BlockEncrypt + KeySizeUser,
-    <Ciph::BlockSize as ArrayLength<u8>>::ArrayType: Copy,
-    Ciph::KeySize: AddLength<u8, Ciph::KeySize>,
-    CxComSize<Ciph>: AddLength<u8, AesGcmTagSize>,
+    A: AeadInPlace + NewAead,
+    F: CommittingPrf<MsgSize = A::NonceSize, MaskSize = A::KeySize>,
 {
-    /// New tag size is PRF commitment size + original GCM tag size
-    type TagSize = UtcTagSize<Ciph>;
-
-    /// Nonce size are the same
-    type NonceSize = AesGcmNonceSize;
-
-    /// No ciphertext overhead is incurred by this
-    type CiphertextOverhead = U0;
+    prf: F,
+    ciph: PhantomData<A>,
 }
 
-impl<Ciph> NewAead for UtcOverAesGcm<Ciph>
+impl<A, F> AeadCore for Utc<A, F>
 where
-    Ciph: BlockCipher + BlockSizeUser<BlockSize = U16> + BlockEncrypt + KeyInit + KeySizeUser,
-    <Ciph::BlockSize as ArrayLength<u8>>::ArrayType: Copy,
-    Ciph::KeySize: AddLength<u8, Ciph::KeySize>,
-    CxComSize<Ciph>: AddLength<u8, AesGcmTagSize>,
+    A: AeadInPlace + NewAead,
+    F: CommittingPrf<MsgSize = A::NonceSize, MaskSize = A::KeySize>,
+    F::ComSize: AddLength<u8, A::TagSize>,
 {
-    type KeySize = Ciph::KeySize;
+    /// New tag size is PRF commitment size + original tag size
+    type TagSize = <F::ComSize as AddLength<u8, A::TagSize>>::Output;
 
-    fn new(key: &GenericArray<u8, Ciph::KeySize>) -> Self {
-        UtcOverAesGcm(Ciph::new(key))
+    /// Nonce size is the same
+    type NonceSize = A::NonceSize;
+
+    /// Ciphertext overhead is the same
+    type CiphertextOverhead = A::CiphertextOverhead;
+}
+
+impl<A, F> NewAead for Utc<A, F>
+where
+    A: AeadInPlace + NewAead,
+    F: CommittingPrf<MsgSize = A::NonceSize, MaskSize = A::KeySize>,
+{
+    type KeySize = F::KeySize;
+
+    fn new(key: &GenericArray<u8, F::KeySize>) -> Self {
+        Utc {
+            prf: F::new(key),
+            ciph: PhantomData,
+        }
     }
 }
 
-impl<Ciph> AeadInPlace for UtcOverAesGcm<Ciph>
+impl<A, F> AeadInPlace for Utc<A, F>
 where
-    Ciph: BlockCipher + BlockSizeUser<BlockSize = U16> + BlockEncrypt + KeyInit + KeySizeUser,
-    <Ciph::BlockSize as ArrayLength<u8>>::ArrayType: Copy,
-    Ciph::KeySize: AddLength<u8, Ciph::KeySize>,
-    CxComSize<Ciph>: AddLength<u8, AesGcmTagSize>,
+    A: AeadInPlace + ClobberingDecrypt + NewAead,
+    F: CommittingPrf<MsgSize = A::NonceSize, MaskSize = A::KeySize>,
+    F::ComSize: AddLength<u8, A::TagSize>,
 {
     // Paraphrasing from Figure 15:
     //
-    // UtC[CX, AES-GCM].Enc(K, N, A, M):
-    //     (com, mask) ← CX.Prf(K, N)
-    //     (C, T) ← AES-GCM.Enc(mask, N, A, M)
+    // UtC[F, A].Enc(K, N, A, M):
+    //     (com, mask) ← F.Prf(K, N)
+    //     (C, T) ← A.Enc(mask, N, A, M)
     //     T' ← T || com
     //     return (C, T')
     fn encrypt_in_place_detached(
@@ -80,25 +78,24 @@ where
         buffer: &mut [u8],
     ) -> Result<Tag<Self>, Error> {
         // Generate the commitment and mask
-        let cx_prf = CxPrf(&self.0);
-        let (prf_com, prf_mask) = cx_prf.prf(nonce);
+        let (prf_com, prf_mask) = self.prf.prf(nonce);
 
         // Now use the mask as an encryption key
-        let gcm = AesGcm::<Ciph, U12>::new(&prf_mask);
-        let gcm_tag = gcm.encrypt_in_place_detached(nonce, associated_data, buffer)?;
+        let ciph = A::new(&prf_mask);
+        let ciph_tag = ciph.encrypt_in_place_detached(nonce, associated_data, buffer)?;
 
-        Ok(pack_tag::<Ciph>(gcm_tag, prf_com))
+        Ok(pack_tag::<A, F>(ciph_tag, prf_com))
     }
 
     // Paraphrasing from Figure 15:
     //
-    // UtC[CX, AES-GCM].Dec(K, N, A, C, T'):
+    // UtC[F, A].Dec(K, N, A, C, T'):
     //     (com, T) ← T'
-    //     (expected_com, mask) ← CX.Prf(K, N)
+    //     (expected_com, mask) ← F.Prf(K, N)
     //     if com != expected_com:
     //         return ⊥
     //     else:
-    //         M ← AES-GCM.Dec(mask, N, A, C, T)
+    //         M ← A.Dec(mask, N, A, C, T)
     //         return M
     fn decrypt_in_place_detached(
         &self,
@@ -108,15 +105,15 @@ where
         tag: &Tag<Self>,
     ) -> Result<(), Error> {
         // Unpack the components of the tag
-        let (gcm_tag, prf_com) = unpack_tag::<Ciph>(tag);
+        let (ciph_tag, prf_com) = unpack_tag::<A, F>(tag);
 
         // Generate the commitment and mask
-        let cx_prf = CxPrf(&self.0);
-        let (expected_prf_com, prf_mask) = cx_prf.prf(nonce);
+        let (expected_prf_com, prf_mask) = self.prf.prf(nonce);
 
         // Now use the mask as an encryption key
-        let gcm = AesGcm::<Ciph, U12>::new(&prf_mask);
-        let decryption_success = gcm.clobbering_decrypt(nonce, associated_data, buffer, gcm_tag)?;
+        let ciph = A::new(&prf_mask);
+        let decryption_success =
+            ciph.clobbering_decrypt(nonce, associated_data, buffer, ciph_tag)?;
 
         // Check that the PRF commitments match
         let com_matches = prf_com.ct_eq(&expected_prf_com);
@@ -127,50 +124,43 @@ where
             Ok(())
         } else {
             // Unclobber so the caller doesn't see unauthenticated plaintext
-            gcm.unclobber(nonce, buffer, gcm_tag);
+            ciph.unclobber(nonce, buffer, ciph_tag);
             Err(Error)
         }
     }
 }
 
-/// Creates a `utc_tag = gcm_tag || prf_com`
-fn pack_tag<Ciph>(
-    gcm_tag: GenericArray<u8, AesGcmTagSize>,
-    prf_com: GenericArray<u8, CxComSize<Ciph>>,
-) -> GenericArray<u8, UtcTagSize<Ciph>>
+/// Creates a `utc_tag = ciph_tag || prf_com`
+fn pack_tag<A, F>(
+    ciph_tag: GenericArray<u8, A::TagSize>,
+    prf_com: GenericArray<u8, F::ComSize>,
+) -> Tag<Utc<A, F>>
 where
-    Ciph: BlockEncrypt + KeySizeUser,
-    <Ciph::BlockSize as ArrayLength<u8>>::ArrayType: Copy,
-    Ciph::KeySize: AddLength<u8, Ciph::KeySize>,
-    CxComSize<Ciph>: AddLength<u8, AesGcmTagSize>,
-    CxPrf<'static, Ciph>: CommittingPrf,
+    A: AeadInPlace + NewAead,
+    F: CommittingPrf<MsgSize = A::NonceSize, MaskSize = A::KeySize>,
+    F::ComSize: AddLength<u8, A::TagSize>,
 {
-    let mut utc_tag = GenericArray::<u8, UtcTagSize<Ciph>>::default();
+    let mut utc_tag = Tag::<Utc<A, F>>::default();
 
-    utc_tag.as_mut_slice()[..AesGcmTagSize::USIZE].copy_from_slice(&gcm_tag);
-    utc_tag.as_mut_slice()[AesGcmTagSize::USIZE..].copy_from_slice(&prf_com);
+    utc_tag.as_mut_slice()[..A::TagSize::USIZE].copy_from_slice(&ciph_tag);
+    utc_tag.as_mut_slice()[A::TagSize::USIZE..].copy_from_slice(&prf_com);
 
     utc_tag
 }
 
-/// Unpacks `utc_tag = gcm_tag || prf_com`
-fn unpack_tag<Ciph>(
-    utc_tag: &GenericArray<u8, UtcTagSize<Ciph>>,
-) -> (
-    &GenericArray<u8, AesGcmTagSize>,
-    &GenericArray<u8, CxComSize<Ciph>>,
-)
+/// Unpacks `utc_tag = ciph_tag || prf_com`
+fn unpack_tag<A, F>(
+    utc_tag: &Tag<Utc<A, F>>,
+) -> (&GenericArray<u8, A::TagSize>, &GenericArray<u8, F::ComSize>)
 where
-    Ciph: BlockEncrypt + KeySizeUser,
-    <Ciph::BlockSize as ArrayLength<u8>>::ArrayType: Copy,
-    Ciph::KeySize: AddLength<u8, Ciph::KeySize>,
-    CxComSize<Ciph>: AddLength<u8, AesGcmTagSize>,
-    CxPrf<'static, Ciph>: CommittingPrf,
+    A: AeadInPlace + NewAead,
+    F: CommittingPrf<MsgSize = A::NonceSize, MaskSize = A::KeySize>,
+    F::ComSize: AddLength<u8, A::TagSize>,
 {
-    let gcm_tag = GenericArray::<u8, AesGcmTagSize>::from_slice(&utc_tag[..AesGcmTagSize::USIZE]);
-    let prf_com = GenericArray::<u8, CxComSize<Ciph>>::from_slice(&utc_tag[AesGcmTagSize::USIZE..]);
+    let ciph_tag = GenericArray::<u8, A::TagSize>::from_slice(&utc_tag[..A::TagSize::USIZE]);
+    let prf_com = GenericArray::<u8, F::ComSize>::from_slice(&utc_tag[A::TagSize::USIZE..]);
 
-    (gcm_tag, prf_com)
+    (ciph_tag, prf_com)
 }
 
 #[cfg(test)]
