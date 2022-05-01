@@ -17,11 +17,13 @@ Low-level things implemented:
 - [X] UtC transform
 - [ ] RtC transform
 - [X] HtE transform
+    - [X] HtE constructed from a generic MAC (called MacHte)
+    - [X] HtE constructed from the HKDF of a generic hash function (called HkdfHte)
 
 High-level things implemented:
 
-- [X] UtC-transformed AES-128/256-GCM (using CX for Committing PRF)
-- [X] HtE-transformed UtC-AES-128/256-GCM (using Blake2b for MAC)
+- [X] UtC-transformed AES-128/256-GCM (using HKDF-SHA2 for Committing PRF)
+- [X] HtE-transformed UtC-AES-128/256-GCM (using HMAC-SHA2 or HKDF-SHA2 for MAC)
 - [ ] RtC-transformed AES-128-GCM-SIV
 - [ ] HtE-transformed RtC-AES-128-GCM-SIV
 - [ ] UtC-transformed ChaCha20-Poly1305
@@ -36,6 +38,7 @@ High-level things implemented:
 2. The main reason I'm using CX is because someone using AES for encryption might reasonable have HW acceleration and want to use AES for PRFs and hashing too. So similar question: what should I use instead of Blake2b in the HtE transform for AES? CMAC/PMAC/CBC-MAC digests are too small.
 3. It appears that RtC (Figure 16) requires the ciphertext to be at least one block long. That's a pain as far as API design goes. Is there a way around this?
 4. Are CAU and CAU-C1 (Section 5) worth implementing? They have really low overhead, but it says explicitly in the discussion that key-commitment can be broken with 2^64 work. If our goal with this library is developer ease-of-use, is that bound sufficiently high?
+5. I have `HkdfHte` and `MacHte`. I would much prefer to get rid of `HkdfHte` because it's strictly more expensive. The only reason it's currently there is because it's a little bit cleaner. Specifically, it offers more opportunities for domain separation and it lets the caller specify the number of bytes it wants (rather than making the caller truncate).
 
 ## Warning
 
