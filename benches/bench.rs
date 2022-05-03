@@ -44,12 +44,12 @@ fn bench_aead<A: NewAead + AeadInPlace>(c: &mut Criterion, name: &str) {
         group.bench_with_input(
             BenchmarkId::from_parameter(format!("encrypt [msg=aad={}B]", size)),
             &(2 * size), // Count AAD and message bytes
-            |b, &size| {
+            |b, &combined_size| {
                 b.iter(|| {
                     aead.encrypt_in_place_detached(
                         &nonce,
-                        &associated_data[0..size],
-                        &mut buffer[0..size],
+                        &associated_data[0..combined_size / 2],
+                        &mut buffer[0..combined_size / 2],
                     )
                     .expect("encryption failure!")
                 });
@@ -62,12 +62,12 @@ fn bench_aead<A: NewAead + AeadInPlace>(c: &mut Criterion, name: &str) {
         group.bench_with_input(
             BenchmarkId::from_parameter(format!("decrypt [msg=aad={}B]", size)),
             &(2 * size), // Count AAD and message bytes
-            |b, &size| {
+            |b, &combined_size| {
                 b.iter(|| {
-                    let mut buf_copy = buffer[0..size].to_vec();
+                    let mut buf_copy = buffer[0..combined_size / 2].to_vec();
                     aead.decrypt_in_place_detached(
                         &nonce,
-                        &associated_data[0..size],
+                        &associated_data[0..combined_size / 2],
                         &mut buf_copy,
                         &tag,
                     )
@@ -83,9 +83,9 @@ fn bench_aead<A: NewAead + AeadInPlace>(c: &mut Criterion, name: &str) {
         group.bench_with_input(
             BenchmarkId::from_parameter(format!("encrypt [msg={}B,aad=0B]", size)),
             size,
-            |b, &size| {
+            |b, &msg_size| {
                 b.iter(|| {
-                    aead.encrypt_in_place_detached(&nonce, b"", &mut buffer[0..size])
+                    aead.encrypt_in_place_detached(&nonce, b"", &mut buffer[0..msg_size])
                         .expect("encryption failure!")
                 });
             },
@@ -97,9 +97,9 @@ fn bench_aead<A: NewAead + AeadInPlace>(c: &mut Criterion, name: &str) {
         group.bench_with_input(
             BenchmarkId::from_parameter(format!("decrypt [msg={}B,aad=0B]", size)),
             size,
-            |b, &size| {
+            |b, &msg_size| {
                 b.iter(|| {
-                    let mut buf_copy = buffer[0..size].to_vec();
+                    let mut buf_copy = buffer[0..msg_size].to_vec();
                     aead.decrypt_in_place_detached(&nonce, b"", &mut buf_copy, &tag)
                         .expect("decryption failure!");
                 })
