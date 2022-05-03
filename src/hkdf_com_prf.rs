@@ -1,6 +1,6 @@
 //! Defines an HKDF-based committing PRF for generic hash functions
 
-use crate::util::CommittingPrf;
+use crate::util::{CommittingPrf, DoubleKeySize};
 
 use core::marker::PhantomData;
 
@@ -14,9 +14,12 @@ use hkdf::SimpleHkdf;
 // Here's the current definition:
 //
 // HkdfComPrf[H].Prf(K, N):
-//     com ← HKDF[H].Expand(prk=K, info="P" || N, len=|K|)
-//     mask ← HKDF[H].Expand(prk=K, info="L" || N, len=|K|/2)
+//     prk ← HKDF[H].Extract(salt="HkdfComPrf", ikm=K)
+//     com ← HKDF[H].Expand(prk, info="P" || N, len=2*|K|)
+//     mask ← HKDF[H].Expand(prk, info="L" || N, len=|K|)
 //     return (com, mask)
+
+const EXTRACT_DOMAIN_SEP: &[u8] = b"HkdfComPrf";
 
 /// A committing PRF derived from HKDF, defined over a hash funtion `H`
 pub struct HkdfComPrf<H, MaskSize, MsgSize>
@@ -37,7 +40,9 @@ where
     MaskSize: AddLength<u8, MaskSize>,
     MsgSize: ArrayLength<u8>,
 {
-    type KeySize = <MaskSize as AddLength<u8, MaskSize>>::Output;
+    // Remember the mask is used as an encryption key in UtC. Use the same key size as the
+    // underlying cipher.
+    type KeySize = MaskSize;
 }
 
 impl<H, MaskSize, MsgSize> KeyInit for HkdfComPrf<H, MaskSize, MsgSize>
@@ -50,7 +55,7 @@ where
     fn new(key: &Key<Self>) -> Self {
         // We can unwrap() below because the only possible error is InvalidPrkLength
         HkdfComPrf {
-            hkdf: SimpleHkdf::from_prk(&key).unwrap(),
+            hkdf: SimpleHkdf::extract(Some(EXTRACT_DOMAIN_SEP), key).1,
             _marker: PhantomData,
         }
     }
@@ -63,7 +68,7 @@ where
     MaskSize: AddLength<u8, MaskSize>,
     MsgSize: ArrayLength<u8>,
 {
-    type ComSize = Self::KeySize;
+    type ComSize = DoubleKeySize<Self>;
     type MaskSize = MaskSize;
     type MsgSize = MsgSize;
 

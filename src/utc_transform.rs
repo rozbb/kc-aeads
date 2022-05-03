@@ -22,9 +22,6 @@ pub type UtcAes128Gcm = Utc<Aes128Gcm, HkdfComPrf<Sha256, U16, U12>>;
 pub type UtcAes256Gcm = Utc<Aes256Gcm, HkdfComPrf<Sha512, U32, U12>>;
 //pub type UtcAes256Gcm = Utc<Aes256Gcm, CxPrf<Aes256, U12>>;
 
-pub(crate) type DoubleKeySize<A> =
-    <<A as NewAead>::KeySize as AddLength<u8, <A as NewAead>::KeySize>>::Output;
-
 /// The UtC transformation over a generic AEAD and committing PRF. This converts a unique-nonce-secure
 /// (i.e., not necessarily nonce-misuse-resistant) AEAD into a key-committing unique-nonce-secure
 /// AEAD. Its construction is described in Figure 15 of [Bellare and
@@ -32,8 +29,7 @@ pub(crate) type DoubleKeySize<A> =
 pub struct Utc<A, F>
 where
     A: AeadInPlace + NewAead,
-    A::KeySize: AddLength<u8, A::KeySize>,
-    F: CommittingPrf<KeySize = DoubleKeySize<A>, MsgSize = A::NonceSize, MaskSize = A::KeySize>,
+    F: CommittingPrf<KeySize = A::KeySize, MsgSize = A::NonceSize, MaskSize = A::KeySize>,
     F::ComSize: AddLength<u8, A::TagSize>,
 {
     prf: F,
@@ -43,8 +39,7 @@ where
 impl<A, F> AeadCore for Utc<A, F>
 where
     A: AeadInPlace + NewAead,
-    A::KeySize: AddLength<u8, A::KeySize>,
-    F: CommittingPrf<KeySize = DoubleKeySize<A>, MsgSize = A::NonceSize, MaskSize = A::KeySize>,
+    F: CommittingPrf<KeySize = A::KeySize, MsgSize = A::NonceSize, MaskSize = A::KeySize>,
     F::ComSize: AddLength<u8, A::TagSize>,
 {
     /// New tag size is PRF commitment size + original tag size
@@ -60,8 +55,7 @@ where
 impl<A, F> NewAead for Utc<A, F>
 where
     A: AeadInPlace + NewAead,
-    A::KeySize: AddLength<u8, A::KeySize>,
-    F: CommittingPrf<KeySize = DoubleKeySize<A>, MsgSize = A::NonceSize, MaskSize = A::KeySize>,
+    F: CommittingPrf<KeySize = A::KeySize, MsgSize = A::NonceSize, MaskSize = A::KeySize>,
     F::ComSize: AddLength<u8, A::TagSize>,
 {
     type KeySize = F::KeySize;
@@ -77,8 +71,7 @@ where
 impl<A, F> AeadInPlace for Utc<A, F>
 where
     A: AeadInPlace + ClobberingDecrypt + NewAead,
-    A::KeySize: AddLength<u8, A::KeySize>,
-    F: CommittingPrf<KeySize = DoubleKeySize<A>, MsgSize = A::NonceSize, MaskSize = A::KeySize>,
+    F: CommittingPrf<KeySize = A::KeySize, MsgSize = A::NonceSize, MaskSize = A::KeySize>,
     F::ComSize: AddLength<u8, A::TagSize>,
 {
     // Paraphrasing from Figure 15:
@@ -154,8 +147,7 @@ fn pack_tag<A, F>(
 ) -> Tag<Utc<A, F>>
 where
     A: AeadInPlace + NewAead,
-    A::KeySize: AddLength<u8, A::KeySize>,
-    F: CommittingPrf<KeySize = DoubleKeySize<A>, MsgSize = A::NonceSize, MaskSize = A::KeySize>,
+    F: CommittingPrf<KeySize = A::KeySize, MsgSize = A::NonceSize, MaskSize = A::KeySize>,
     F::ComSize: AddLength<u8, A::TagSize>,
 {
     let mut utc_tag = Tag::<Utc<A, F>>::default();
@@ -172,8 +164,7 @@ fn unpack_tag<A, F>(
 ) -> (&GenericArray<u8, A::TagSize>, &GenericArray<u8, F::ComSize>)
 where
     A: AeadInPlace + NewAead,
-    A::KeySize: AddLength<u8, A::KeySize>,
-    F: CommittingPrf<KeySize = DoubleKeySize<A>, MsgSize = A::NonceSize, MaskSize = A::KeySize>,
+    F: CommittingPrf<KeySize = A::KeySize, MsgSize = A::NonceSize, MaskSize = A::KeySize>,
     F::ComSize: AddLength<u8, A::TagSize>,
 {
     let ciph_tag = GenericArray::<u8, A::TagSize>::from_slice(&utc_tag[..A::TagSize::USIZE]);
