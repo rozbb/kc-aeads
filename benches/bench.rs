@@ -52,7 +52,7 @@ fn bench_aead<A: NewAead + AeadInPlace>(c: &mut Criterion, name: &str) {
             .encrypt_in_place_detached(&nonce, &associated_data[0..*size], &mut buffer[0..*size])
             .expect("encryption failure!");
         group.bench_with_input(
-            BenchmarkId::from_parameter(format!("decrypt {: >8}", size)),
+            BenchmarkId::from_parameter(format!("decrypt [msg=aad={}B]", size)),
             size,
             |b, &size| {
                 b.iter(|| {
