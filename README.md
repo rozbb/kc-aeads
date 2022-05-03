@@ -15,7 +15,7 @@ Low-level things implemented:
 
 - [X] CX block cipher Committing PRF (maybe not sufficiently secure; see question below)
 - [X] UtC transform
-- [ ] RtC transform
+- [ ] RtC transform (not sure if I will; see question 3)
 - [X] HtE transform
     - [X] HtE constructed from a generic MAC (called MacHte)
     - [X] HtE constructed from the HKDF of a generic hash function (called HkdfHte)
@@ -39,6 +39,8 @@ High-level things implemented:
 3. It appears that RtC (Figure 16) requires the ciphertext to be at least one block long. That's a pain as far as API design goes. Is there a way around this?
 4. Are CAU and CAU-C1 (Section 5) worth implementing? They have really low overhead, but it says explicitly in the discussion that key-commitment can be broken with 2^64 work. If our goal with this library is developer ease-of-use, is that bound sufficiently high?
 5. I have `HkdfHte` and `MacHte`. I would much prefer to get rid of `HkdfHte` because it's strictly more expensive. The only reason it's currently there is because it's a little bit cleaner. Specifically, it offers more opportunities for domain separation and it lets the caller specify the number of bytes it wants (rather than making the caller truncate).
+6. Similarly, `HkdfComPrf` is pretty expensive too. It needs to do an `Extract` operation when being instantiated because the key sizes it receives are too small to do an `Expand` right away (recall its key sizes are double the bit level they target; why is that?).
+7. What PRFs should I use for the UtC and HtE over ChaCha? I'd like to use Blake2b for the UtC committing PRF and HtE MAC. But the former usage requires more than 64 bytes of digest, and the latter's key size is 512 bits, which is way too big. Am I doomed to use HKDF-Blake2b for both of these, just like HKDF-SHA2 in the AES ciphers?
 
 ## Warning
 
