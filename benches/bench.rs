@@ -1,3 +1,7 @@
+// This file was adapted from
+// https://github.com/PaulGrandperrin/XChaCha8Blake3Siv/blob/bbcc3874da3375a5111d113b01c4156b660ef034/benches/bench.rs
+// Thanks Paul!
+
 use aes_gcm::Aes128Gcm;
 use kc_aeads::{MacHteUtcAes128Gcm, UtcAes128Gcm};
 
