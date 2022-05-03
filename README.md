@@ -41,6 +41,7 @@ High-level things implemented:
 5. I have `HkdfHte` and `MacHte`. I would much prefer to get rid of `HkdfHte` because it's strictly more expensive. The only reason it's currently there is because it's a little bit cleaner. Specifically, it offers more opportunities for domain separation and it lets the caller specify the number of bytes it wants (rather than making the caller truncate).
 6. Similarly, `HkdfComPrf` is pretty expensive too. It needs to do an `Extract` operation when being instantiated because the key sizes it receives are too small to do an `Expand` right away (recall its key sizes are double the bit level they target; why is that?).
 7. What PRFs should I use for the UtC and HtE over ChaCha? I'd like to use Blake2b for the UtC committing PRF and HtE MAC. But the former usage requires more than 64 bytes of digest, and the latter's key size is 512 bits, which is way too big. Am I doomed to use HKDF-Blake2b for both of these, just like HKDF-SHA2 in the AES ciphers?
+8. It appears from [this comment](https://github.com/BLAKE3-team/BLAKE3/issues/138#issuecomment-757385386) that ChaCha20-BLAKE3-SIV gets to be almost 2x the throughput of XChaCha20Poly1305. If you just double the SIV tag size (this should cost nothing), you have a fully context-committing AEAD. Why aren't we all just doing that??
 
 ## Warning
 
