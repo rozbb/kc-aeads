@@ -11,7 +11,7 @@ use digest::{
     typenum::{
         marker_traits::NonZero, operator_aliases::LeEq, type_operators::IsLessOrEqual, Unsigned,
     },
-    Key as MacKey, KeyInit, Mac,
+    KeyInit, Mac,
 };
 use hkdf::hmac::SimpleHmac;
 use sha2::{Sha256, Sha512};
@@ -50,8 +50,10 @@ where
     A::KeySize: IsLessOrEqual<M::OutputSize>,
     LeEq<A::KeySize, M::OutputSize>: NonZero,
 {
-    mac_key: MacKey<M>,
-    ciph: PhantomData<A>,
+    // We use the AEAD key as a MAC key. This is fine as long as the underlying MAC allows
+    // variable-sized keys. We'll know if it doesn't because it will panic immediately.
+    mac_key: Key<A>,
+    _marker: PhantomData<M>,
 }
 
 impl<A, M> Zeroize for MacHte<A, M>
@@ -85,12 +87,12 @@ where
     A::KeySize: IsLessOrEqual<M::OutputSize>,
     LeEq<A::KeySize, M::OutputSize>: NonZero,
 {
-    type KeySize = M::KeySize;
+    type KeySize = A::KeySize;
 
     fn new(key: &Key<Self>) -> Self {
         MacHte {
             mac_key: key.clone(),
-            ciph: PhantomData,
+            _marker: PhantomData,
         }
     }
 }
@@ -115,7 +117,8 @@ where
     ) -> Result<Tag<Self>, Error> {
         // Derive the encryption key L
         let digest = {
-            let mut mac = <M as KeyInit>::new(&self.mac_key);
+            let mut mac =
+                <M as KeyInit>::new_from_slice(&self.mac_key).expect("invalid MAC key length");
             mac.update(nonce);
             mac.update(associated_data);
             mac.finalize().into_bytes()
@@ -144,7 +147,8 @@ where
     ) -> Result<(), Error> {
         // Derive the encryption key L
         let digest = {
-            let mut mac = <M as KeyInit>::new(&self.mac_key);
+            let mut mac =
+                <M as KeyInit>::new_from_slice(&self.mac_key).expect("invalid MAC key length");
             mac.update(nonce);
             mac.update(associated_data);
             mac.finalize().into_bytes()
