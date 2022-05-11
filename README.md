@@ -15,7 +15,7 @@ Low-level things implemented:
 
 - [X] CX block cipher Committing PRF (maybe not sufficiently secure; see question below)
 - [X] UtC transform
-- [ ] RtC transform (not sure if I will; see question 3)
+- [ ] RtC transform (not sure if I will; see question 4)
 - [X] HtE transform
     - [X] HtE constructed from a generic MAC (called MacHte)
     - [X] HtE constructed from the HKDF of a generic hash function (called HkdfHte)
